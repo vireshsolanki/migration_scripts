@@ -9,11 +9,11 @@
 - **Instructions**:
   1. Make sure you have the required dependencies installed:
      ```bash
-     pip install boto3 openpyxl
+     pip3 install boto3 openpyxl
      ```
   2. Execute the script:
      ```bash
-     python Getlb.py
+     python3 Getlb.py
      ```
   3. The script will generate an Excel sheet named `loadbalancer_rules.xlsx` in your working directory.
 
@@ -34,14 +34,14 @@
 - **Instructions**:
   1. Ensure you have the required dependencies installed:
      ```bash
-     pip install boto3 openpyxl
+     pip3 install boto3 openpyxl
      ```
   2. **Modify the Script**:
      - **Load Balancer ARN**: Change the `LOAD_BALANCER_ARN` variable to the ARN of your desired load balancer.
      - **Target Group Names**: Ensure that the target group names in the Excel file match those in your destination account.
   3. Execute the script:
      ```bash
-     python Createlb.py
+     python3 Createlb.py
      ```
 
 **Note**: The script will process the updated Excel sheet and create load balancer rules accordingly. Ensure that your AWS credentials have sufficient permissions to perform these operations.
