@@ -37,14 +37,18 @@ valid_condition_fields = ['http-header', 'http-request-method', 'host-header', '
 
 # Skip header row
 for row in sheet.iter_rows(min_row=2, values_only=True):
-    # Safely handle rows with missing data
-    listener_port = row[0] if len(row) > 0 else None
-    action_type = row[3] if len(row) > 3 else None
-    condition_field = row[6] if len(row) > 6 else None
-    condition_value = row[7] if len(row) > 7 else None
+    # Check if row has enough columns before accessing any element
+    if len(row) < 8:
+        print(f"Skipping incomplete row: {row}")
+        continue
+
+    listener_port = row[0]
+    action_type = row[3]
+    condition_field = row[6]
+    condition_value = row[7]
 
     if not listener_port or not action_type or not condition_field or not condition_value:
-        print(f"Skipping incomplete row: {row}")
+        print(f"Skipping incomplete or invalid row: {row}")
         continue
 
     # Skip invalid condition fields
