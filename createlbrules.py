@@ -1,5 +1,6 @@
 import boto3
 import openpyxl
+import time
 
 # AWS credentials and Load Balancer ARN
 LOAD_BALANCER_ARN = "arn:aws:elasticloadbalancing:ap-south-1:145023133364:loadbalancer/app/central-platforms-nonprod-lb/f1c2f465fff37a80"
@@ -32,10 +33,14 @@ def clean_up_rules(listener_arn, max_rules=1000):
     existing_rules = client.describe_rules(ListenerArn=listener_arn)['Rules']
     if len(existing_rules) >= max_rules:
         print(f"Maximum number of rules reached on listener {listener_arn}. Removing old rules...")
-        for rule in existing_rules:
+        # Sort rules by priority to delete the oldest first
+        sorted_rules = sorted(existing_rules, key=lambda r: int(r['Priority']))
+        for rule in sorted_rules:
             if len(existing_rules) >= max_rules:
                 client.delete_rule(RuleArn=rule['RuleArn'])
                 print(f"Deleted rule {rule['RuleArn']}")
+                # Re-fetch the rules list after deletion
+                existing_rules = client.describe_rules(ListenerArn=listener_arn)['Rules']
             else:
                 break
 
@@ -110,5 +115,8 @@ for row in sheet.iter_rows(min_row=2, values_only=True):
         print(f"Rule created successfully with ARN: {new_rule_arn} for priority {priority} on listener {listener_arn}.")
     except Exception as e:
         print(f"Failed to create rule for priority {priority}: {e}")
+
+    # Add a delay before creating the next rule
+    time.sleep(2)  # Delay in seconds
 
 print("Finished creating rules.")
