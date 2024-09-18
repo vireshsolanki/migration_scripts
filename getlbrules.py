@@ -13,11 +13,15 @@ sheet = wb.active
 sheet.title = "Load Balancer Rules"
 
 # Define the headers for the Excel sheet
-headers = ["Listener Port", "Rule Priority", "Rule ARN", "Action Type", "Target Group ARN", "Redirect URL", "Condition Field", "Condition Value"]
+headers = ["Listener Port", "Rule Priority", "Rule ARN", "Action Type", "Target Group ARN", "Target Group Name", "Redirect URL", "Condition Field", "Condition Value"]
 sheet.append(headers)
 
 # Fetch the listeners for the specified load balancer
 listeners = client.describe_listeners(LoadBalancerArn=LOAD_BALANCER_ARN)['Listeners']
+
+# Fetch the target groups
+target_groups = client.describe_target_groups()['TargetGroups']
+target_groups_dict = {tg['TargetGroupArn']: tg['TargetGroupName'] for tg in target_groups}
 
 # Iterate over each listener
 for listener in listeners:
@@ -42,6 +46,7 @@ for listener in listeners:
             for action in actions:
                 action_type = action['Type']
                 target_group_arn = action.get('TargetGroupArn', "N/A")
+                target_group_name = target_groups_dict.get(target_group_arn, "N/A")
                 redirect_url = "N/A"
 
                 # Check if action is a redirect and extract URL if applicable
@@ -55,7 +60,7 @@ for listener in listeners:
 
                     # If there are multiple values, save each one in a new row
                     for value in values:
-                        row = [port, priority, rule_arn, action_type, target_group_arn, redirect_url, field, value]
+                        row = [port, priority, rule_arn, action_type, target_group_arn, target_group_name, redirect_url, field, value]
                         sheet.append(row)
 
 # Auto-adjust column widths for better readability
