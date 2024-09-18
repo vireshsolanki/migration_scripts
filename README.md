@@ -1,6 +1,3 @@
-Certainly! Here’s a detailed step-by-step guide for running the scripts and creating the load balancer rules:
-
----
 
 ## **Guide for Managing Load Balancer Rules**
 
@@ -58,7 +55,3 @@ Certainly! Here’s a detailed step-by-step guide for running the scripts and cr
 **`Createlb.py`**:
 - **Purpose**: Reads the Excel sheet and creates load balancer rules based on the provided data.
 - **Instructions**: Make sure to update the `LOAD_BALANCER_ARN` and verify target group names before running.
-
----
-
-Feel free to share this document with anyone who needs to follow these steps, and let me know if you need any more details!
