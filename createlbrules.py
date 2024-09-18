@@ -3,7 +3,7 @@ import openpyxl
 import time
 
 # AWS credentials and Load Balancer ARN
-LOAD_BALANCER_ARN = "arn:aws:elasticloadbalancing:ap-south-1:145023133364:loadbalancer/app/central-platforms-nonprod-lb/f1c2f465fff37a80"
+LOAD_BALANCER_ARN = "arn:aws:elasticloadbalancing:ap-south-1:092042625037:loadbalancer/app/cloud-dev-ondemand-lb/04f65db33b0e9ca8"
 REGION_NAME = "ap-south-1"
 
 # Initialize AWS client
@@ -13,6 +13,9 @@ tg_client = boto3.client('elbv2', region_name=REGION_NAME)
 # Load the Excel workbook
 wb = openpyxl.load_workbook("loadbalancer_rules.xlsx")
 sheet = wb.active
+
+# List of valid condition fields
+valid_condition_fields = ['http-header', 'http-request-method', 'host-header', 'query-string', 'source-ip', 'path-pattern']
 
 def get_next_available_priority(listener_arn):
     """Fetch existing rules and return the next available priority."""
@@ -33,35 +36,31 @@ def clean_up_rules(listener_arn, max_rules=1000):
     existing_rules = client.describe_rules(ListenerArn=listener_arn)['Rules']
     if len(existing_rules) >= max_rules:
         print(f"Maximum number of rules reached on listener {listener_arn}. Removing old rules...")
-        # Sort rules by priority to delete the oldest first
         sorted_rules = sorted(existing_rules, key=lambda r: int(r['Priority']))
         for rule in sorted_rules:
             if len(existing_rules) >= max_rules:
                 client.delete_rule(RuleArn=rule['RuleArn'])
                 print(f"Deleted rule {rule['RuleArn']}")
-                # Re-fetch the rules list after deletion
                 existing_rules = client.describe_rules(ListenerArn=listener_arn)['Rules']
             else:
                 break
 
-valid_condition_fields = ['http-header', 'http-request-method', 'host-header', 'query-string', 'source-ip', 'path-pattern']
-
 # Skip header row
 for row in sheet.iter_rows(min_row=2, values_only=True):
-    listener_port = row[0]
-    action_type = row[3]
-    target_group_name = row[4]  # Now reading the target group name instead of ARN
-    condition_field = row[6]
-    condition_value = row[7]
+    listener_port = row[0]  # Listener port (80 or 443)
+    action_type = row[3]  # Action type (forward or redirect)
+    target_group_name = row[5]  # Target group name
+    condition_field = row[7]  # Condition field (host-header, etc.)
+    condition_value = row[8]  # Condition value (e.g., domain name)
 
-    # Skip invalid condition fields
+    # Skip invalid or N/A condition fields
     if condition_field == 'N/A' or condition_field not in valid_condition_fields:
         print(f"Skipping rule creation for port {listener_port} due to invalid condition field '{condition_field}'.")
         continue
 
     print(f"Creating rule for port {listener_port}...")
 
-    # Find the listener ARN for the given port
+    # Find the listener ARN for the given port (80 or 443)
     listeners = client.describe_listeners(LoadBalancerArn=LOAD_BALANCER_ARN)['Listeners']
     listener_arn = next((l['ListenerArn'] for l in listeners if l['Port'] == listener_port), None)
 
@@ -76,32 +75,19 @@ for row in sheet.iter_rows(min_row=2, values_only=True):
     priority = get_next_available_priority(listener_arn)
     print(f"Assigned priority {priority}.")
 
-    # Get the target group ARN from the target group name
+    # Get the target group ARN from the target group name (if not a redirect rule)
     if action_type != "redirect":
         try:
             target_group_arn = get_target_group_arn(target_group_name)
         except ValueError as e:
             print(e)
             continue
-        actions = [{
-            'Type': action_type,
-            'TargetGroupArn': target_group_arn
-        }]
+        actions = [{'Type': action_type, 'TargetGroupArn': target_group_arn}]
     else:
-        actions = [{
-            'Type': 'redirect',
-            'RedirectConfig': {
-                'Protocol': 'HTTPS',
-                'Port': '443',
-                'StatusCode': 'HTTP_301'
-            }
-        }]
+        actions = [{'Type': 'redirect', 'RedirectConfig': {'Protocol': 'HTTPS', 'Port': '443', 'StatusCode': 'HTTP_301'}}]
 
     # Create the conditions
-    conditions = [{
-        'Field': condition_field,
-        'Values': [condition_value]
-    }]
+    conditions = [{'Field': condition_field, 'Values': [condition_value]}]
 
     # Create the rule
     try:
