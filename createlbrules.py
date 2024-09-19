@@ -11,7 +11,7 @@ client = boto3.client('elbv2', region_name=REGION_NAME)
 tg_client = boto3.client('elbv2', region_name=REGION_NAME)
 
 # Load the Excel workbook
-file_path = "/mnt/data/loadbalancer_rules_combined.xlsx"
+file_path = "loadbalancer_rules_combined.xlsx"
 wb = openpyxl.load_workbook(file_path)
 sheet = wb.active
 
