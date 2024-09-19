@@ -1,9 +1,10 @@
+# Modify the code to handle 'host-header' and 'path-pattern' conditions separately
 import boto3
-import openpyxl
 import time
+import openpyxl
 
 # AWS credentials and Load Balancer ARN
-LOAD_BALANCER_ARN = "arn:aws:elasticloadbalancing:ap-south-1:092042625037:loadbalancer/app/cloud-dev-ondemand-lb/04f65db33b0e9ca8"
+LOAD_BALANCER_ARN = "arn:aws:elasticloadbalancing:ap-south-1:145023133364:loadbalancer/app/central-platforms-nonprod-lb/f1c2f465fff37a80"
 REGION_NAME = "ap-south-1"
 
 # Initialize AWS client
@@ -11,7 +12,7 @@ client = boto3.client('elbv2', region_name=REGION_NAME)
 tg_client = boto3.client('elbv2', region_name=REGION_NAME)
 
 # Load the Excel workbook
-file_path = "loadbalancer_rules_combined.xlsx"
+file_path = "loadbalancer_rules_combined.xlsx"  # Ensure the path is correct
 wb = openpyxl.load_workbook(file_path)
 sheet = wb.active
 
@@ -42,10 +43,7 @@ def clean_up_rules(listener_arn, max_rules=1000):
             else:
                 break
 
-# Dictionary to track combined conditions for each listener port
-listener_conditions = {}
-
-# Skip header row and process each rule from the Excel file
+# Process each rule from the Excel file
 for row in sheet.iter_rows(min_row=2, values_only=True):
     listener_port = row[0]  # Listener port (80 or 443)
     action_type = row[3]  # Action type (forward or redirect)
@@ -58,50 +56,40 @@ for row in sheet.iter_rows(min_row=2, values_only=True):
         print(f"Skipping rule creation for port {listener_port} due to invalid condition field '{condition_field}'.")
         continue
 
-    # Initialize the condition combination for the listener port if not present
-    if listener_port not in listener_conditions:
-        listener_conditions[listener_port] = {'host-header': [], 'path-pattern': []}
+    # Find the listener ARN for the given port (80 or 443)
+    listeners = client.describe_listeners(LoadBalancerArn=LOAD_BALANCER_ARN)['Listeners']
+    listener_arn = next((l['ListenerArn'] for l in listeners if l['Port'] == listener_port), None)
 
-    # Add conditions to the respective fields
-    if condition_field in ['host-header', 'path-pattern']:
-        listener_conditions[listener_port][condition_field].append(condition_value)
+    if not listener_arn:
+        print(f"No listener found on port {listener_port}. Skipping...")
+        continue
 
-    # Check if we have both host-header and path-pattern conditions ready to create a combined rule
-    if listener_conditions[listener_port]['host-header'] and listener_conditions[listener_port]['path-pattern']:
-        print(f"Creating combined rule for port {listener_port}...")
+    # Clean up old rules if necessary
+    clean_up_rules(listener_arn)
 
-        # Find the listener ARN for the given port (80 or 443)
-        listeners = client.describe_listeners(LoadBalancerArn=LOAD_BALANCER_ARN)['Listeners']
-        listener_arn = next((l['ListenerArn'] for l in listeners if l['Port'] == listener_port), None)
+    # Automatically get the next available priority
+    priority = get_next_available_priority(listener_arn)
+    print(f"Assigned priority {priority}.")
 
-        if not listener_arn:
-            print(f"No listener found on port {listener_port}. Skipping...")
+    # Get the target group ARN from the target group name (if not a redirect rule)
+    if action_type != "redirect":
+        target_group_arn = target_groups_dict.get(target_group_name, None)
+        if not target_group_arn:
+            print(f"Target group with name {target_group_name} not found. Skipping...")
             continue
+        actions = [{'Type': action_type, 'TargetGroupArn': target_group_arn}]
+    else:
+        actions = [{'Type': 'redirect', 'RedirectConfig': {'Protocol': 'HTTPS', 'Port': '443', 'StatusCode': 'HTTP_301'}}]
 
-        # Clean up old rules if necessary
-        clean_up_rules(listener_arn)
+    # Handle separate 'host-header' and 'path-pattern' conditions
+    conditions = []
+    if condition_field == 'host-header':
+        conditions.append({'Field': 'host-header', 'Values': [condition_value]})
+    elif condition_field == 'path-pattern':
+        conditions.append({'Field': 'path-pattern', 'Values': [condition_value]})
 
-        # Automatically get the next available priority
-        priority = get_next_available_priority(listener_arn)
-        print(f"Assigned priority {priority}.")
-
-        # Get the target group ARN from the target group name (if not a redirect rule)
-        if action_type != "redirect":
-            target_group_arn = target_groups_dict.get(target_group_name, None)
-            if not target_group_arn:
-                print(f"Target group with name {target_group_name} not found. Skipping...")
-                continue
-            actions = [{'Type': action_type, 'TargetGroupArn': target_group_arn}]
-        else:
-            actions = [{'Type': 'redirect', 'RedirectConfig': {'Protocol': 'HTTPS', 'Port': '443', 'StatusCode': 'HTTP_301'}}]
-
-        # Combine host-header and path-pattern into a single condition
-        conditions = [
-            {'Field': 'host-header', 'Values': listener_conditions[listener_port]['host-header']},
-            {'Field': 'path-pattern', 'Values': listener_conditions[listener_port]['path-pattern']}
-        ]
-
-        # Create the combined rule
+    # Create the rule if conditions are valid
+    if conditions:
         try:
             response = client.create_rule(
                 ListenerArn=listener_arn,
@@ -114,10 +102,8 @@ for row in sheet.iter_rows(min_row=2, values_only=True):
         except Exception as e:
             print(f"Failed to create rule for priority {priority}: {e}")
 
-        # Clear the conditions after creating the combined rule
-        listener_conditions[listener_port] = {'host-header': [], 'path-pattern': []}
-
-        # Add a delay before creating the next rule
-        time.sleep(2)  # Delay in seconds
+    # Add a delay before creating the next rule
+    time.sleep(2)  # Delay in seconds
 
 print("Finished creating rules.")
+
