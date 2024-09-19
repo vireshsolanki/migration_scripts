@@ -17,19 +17,15 @@ sheet = wb.active
 # List of valid condition fields
 valid_condition_fields = ['http-header', 'http-request-method', 'host-header', 'query-string', 'source-ip', 'path-pattern']
 
+# Get existing target groups
+target_groups = tg_client.describe_target_groups()['TargetGroups']
+target_groups_dict = {tg['TargetGroupName']: tg['TargetGroupArn'] for tg in target_groups}
+
 def get_next_available_priority(listener_arn):
     """Fetch existing rules and return the next available priority."""
     existing_rules = client.describe_rules(ListenerArn=listener_arn)['Rules']
     used_priorities = [int(rule['Priority']) for rule in existing_rules if rule['Priority'].isdigit()]
     return max(used_priorities) + 1 if used_priorities else 1
-
-def get_target_group_arn(target_group_name):
-    """Get the ARN of a target group by its name."""
-    target_groups = tg_client.describe_target_groups()['TargetGroups']
-    target_group_arn = next((tg['TargetGroupArn'] for tg in target_groups if tg['TargetGroupName'] == target_group_name), None)
-    if not target_group_arn:
-        raise ValueError(f"Target group with name {target_group_name} not found.")
-    return target_group_arn
 
 def clean_up_rules(listener_arn, max_rules=1000):
     """Ensure the number of rules does not exceed the maximum limit."""
@@ -45,6 +41,9 @@ def clean_up_rules(listener_arn, max_rules=1000):
             else:
                 break
 
+# Dictionary to track listener ports and their conditions to avoid duplicates
+listener_conditions = {}
+
 # Skip header row
 for row in sheet.iter_rows(min_row=2, values_only=True):
     listener_port = row[0]  # Listener port (80 or 443)
@@ -56,6 +55,19 @@ for row in sheet.iter_rows(min_row=2, values_only=True):
     # Skip invalid or N/A condition fields
     if condition_field == 'N/A' or condition_field not in valid_condition_fields:
         print(f"Skipping rule creation for port {listener_port} due to invalid condition field '{condition_field}'.")
+        continue
+
+    # Check if we have already a combination of host-header and path-pattern for the listener port
+    if listener_port not in listener_conditions:
+        listener_conditions[listener_port] = set()
+
+    if condition_field in ['host-header', 'path-pattern']:
+        # Track presence of host-header and path-pattern
+        listener_conditions[listener_port].add(condition_field)
+
+    # If both host-header and path-pattern are present, skip creating the rule
+    if 'host-header' in listener_conditions[listener_port] and 'path-pattern' in listener_conditions[listener_port]:
+        print(f"Skipping rule creation for port {listener_port} due to both host-header and path-pattern conditions being present.")
         continue
 
     print(f"Creating rule for port {listener_port}...")
@@ -77,10 +89,9 @@ for row in sheet.iter_rows(min_row=2, values_only=True):
 
     # Get the target group ARN from the target group name (if not a redirect rule)
     if action_type != "redirect":
-        try:
-            target_group_arn = get_target_group_arn(target_group_name)
-        except ValueError as e:
-            print(e)
+        target_group_arn = target_groups_dict.get(target_group_name, None)
+        if not target_group_arn:
+            print(f"Target group with name {target_group_name} not found. Skipping...")
             continue
         actions = [{'Type': action_type, 'TargetGroupArn': target_group_arn}]
     else:
